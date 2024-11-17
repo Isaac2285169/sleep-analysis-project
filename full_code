@@ -1,0 +1,356 @@
+addpath /Users/isaacschrofer/Documents/circstat-matlab-master/
+
+%% Preparing the folders to save the output in
+% Setup: Define Paths and Ensure Directory Structure Exists
+
+% Define the main output folder in the current script location
+output_folder = fullfile(pwd, 'output');
+
+% Define subfolder paths within output_folder
+polarplots_folder = fullfile(output_folder, 'polarplots');
+results_folder = fullfile(output_folder, 'results');
+visuals_folder = fullfile(output_folder, 'visuals');
+
+% Create subdirectories if they don't exist
+if ~exist(output_folder, 'dir'), mkdir(output_folder); end
+if ~exist(polarplots_folder, 'dir'), mkdir(polarplots_folder); end
+if ~exist(results_folder, 'dir'), mkdir(results_folder); end
+if ~exist(visuals_folder, 'dir'), mkdir(visuals_folder); end
+
+% Add output folder and its subdirectories to the MATLAB path
+addpath(genpath(output_folder));
+output_folder = 'output';
+polarplots_folder = fullfile(output_folder, 'polarplots');
+results_folder = fullfile(output_folder, 'results');
+visuals_folder = fullfile(output_folder, 'visuals');
+
+% Create subdirectories if they don't exist
+if ~exist(output_folder, 'dir')
+    mkdir(output_folder);
+end
+if ~exist(polarplots_folder, 'dir')
+    mkdir(polarplots_folder);
+end
+if ~exist(results_folder, 'dir')
+    mkdir(results_folder);
+end
+if ~exist(visuals_folder, 'dir')
+    mkdir(visuals_folder);
+end
+
+%% Data setup (Replace with actual data)
+all_participants = [10, 11, 12, 14, 15, 16, 17, 18, 20, 21, 22, 24, 3, 7, 8, 9]; % Insert participant numbers
+
+% ! Replace with actual gender and age data !
+gender = [1; 1; 2; 2; 2; 1; 2; 1]; % 1 = Male, 2 = Female
+age = [30; 40; 50; 67; 47; 88; 43; 23]; 
+
+% Preallocate valid_participants for efficiency
+valid_participants = NaN(1, length(all_participants));
+valid_participants_count = 0;  % Track count of valid participants
+
+for idx = 1:length(all_participants)
+    participant_id = all_participants(idx);
+    participant_data = eval(sprintf('ContSleep_%d', participant_id));
+    
+    % Clean NaN values in sleep data (dx) by replacing them with the mean
+    sleep_duration = participant_data.dx;
+    sleep_duration_mean = mean(sleep_duration, 'omitnan');  % Use mean ignoring NaNs
+    sleep_duration(isnan(sleep_duration)) = sleep_duration_mean;  % Replace NaNs
+    eval(sprintf('ContSleep_%d.dx = sleep_duration;', participant_id));
+    
+    % Check if participant has at least 365 valid (non-NaN) data points
+    if sum(~isnan(sleep_duration)) >= 365
+        valid_participants_count = valid_participants_count + 1;
+        valid_participants(valid_participants_count) = participant_id;
+    end
+end
+
+% Remove unused preallocated elements
+valid_participants = valid_participants(~isnan(valid_participants));
+% Remove unused preallocated elements
+valid_participants = valid_participants(~isnan(valid_participants));
+
+%% Visual Analysis: Polar Plots of Sleep Data
+
+num_days_in_week = 7;
+num_days_in_year = 365;
+
+for idx = 1:length(valid_participants)
+    participant_id = valid_participants(idx);
+    participant_data = eval(sprintf('ContSleep_%d', participant_id));
+    
+    sleep_duration = participant_data.dx;
+    date_time_data = participant_data.ddayutc;
+
+    % Plot weekly and annual polar plots
+    day_of_week = mod(weekday(date_time_data) - 2, 7) + 1;
+    theta_weekday = (day_of_week - 1) * (2 * pi / num_days_in_week);
+    
+    day_of_year = day(date_time_data, 'dayofyear');
+    theta_year = (day_of_year - 1) * (2 * pi / num_days_in_year);
+
+    figure('Visible', 'off', 'Position', [100, 100, 1000, 500]);
+    subplot(1, 2, 1);
+    polarplot(theta_weekday, sleep_duration, 'bo');
+    thetaticks(linspace(0, 360, num_days_in_week + 1));
+    thetaticklabels({'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'});
+    title(sprintf('Sleep Duration Week (Participant %d)', participant_id));
+
+    subplot(1, 2, 2);
+    polarplot(theta_year, sleep_duration, 'ro');
+    thetaticks([0 30 60 90 120 150 180 210 240 270 300 330]);
+    thetaticklabels({'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'});
+    title(sprintf('Sleep Duration Year (Participant %d)', participant_id));
+
+  % Save polar plot to polarplots subfolder
+    saveas(gcf, fullfile(polarplots_folder, sprintf('PolarPlots_p_%d.png', participant_id)));
+    close(gcf);
+end
+
+
+%% Hypothesis 1a: Weekday periodicity effect on sleep duration
+
+results_H1a = struct();
+for idx = 1:length(all_participants)
+    participant_id = all_participants(idx);
+    participant_data = eval(sprintf('ContSleep_%d', participant_id));
+
+    sleep_duration = participant_data.dx;
+    day_of_week = mod(weekday(participant_data.ddayutc) - 2, 7) + 1;
+    theta_weekday = (day_of_week - 1) * (2 * pi / num_days_in_week);
+
+    [rho_weekday, pval_weekday] = circ_corrcl(theta_weekday, sleep_duration');
+
+    is_weekend = (day_of_week == 6 | day_of_week == 7);
+    results_H1a(idx).participant_id = participant_id;
+    results_H1a(idx).weekday_rho = rho_weekday;
+    results_H1a(idx).weekday_pval = pval_weekday;
+    results_H1a(idx).weekday_mean = mean(sleep_duration(~is_weekend));
+    results_H1a(idx).weekend_mean = mean(sleep_duration(is_weekend));
+    results_H1a(idx).week_weekend_diff = (mean(sleep_duration(~is_weekend))) - (mean(sleep_duration(is_weekend)));
+end
+
+save(fullfile(results_folder, 'results_H1a.mat'), 'results_H1a'); % Save results for H1a in results subfolder
+
+% test significance of H1a: perform a paired t-test
+weekday_mean = [results_H1a.weekday_mean]; %create column variables 
+weekend_mean = [results_H1a.weekend_mean];
+
+if length(weekday_mean) ~= length(weekend_mean) % Ensure the two vectors are the same length
+    error('The weekday and weekend sleep data must have the same number of elements.');
+end
+
+[h, p, ci, stats] = ttest(weekend_mean, weekday_mean); % Perform the paired t-test
+
+% Store results in a structure
+ttest_results = struct();
+ttest_results.h = h;                   % Hypothesis test result
+ttest_results.p_value = p;             % p-value
+ttest_results.confidence_interval = ci; % Confidence interval
+ttest_results.t_statistic = stats.tstat; % t-statistic
+ttest_results.degrees_of_freedom = stats.df; % Degrees of freedom
+ttest_results.weekday_mean = mean(weekday_mean); % Mean weekday sleep
+ttest_results.weekend_mean = mean(weekend_mean); % Mean weekend sleep
+
+save(fullfile(results_folder, 'ttest_results.mat'), 'ttest_results'); % Save the results in the results folder
+
+
+%% Hypothesis 1b: Annual periodicity effect on sleep duration
+
+% Preparation to save the results
+results_H1b = struct();
+num_days_in_year = 365;
+
+for idx = 1:length(valid_participants)
+    participant_id = valid_participants(idx);
+    participant_data = eval(sprintf('ContSleep_%d', participant_id));
+
+    sleep_duration = participant_data.dx;
+    date_time_data = participant_data.ddayutc;
+
+    % Ensure there are no NaN values
+    valid_indices = ~isnan(sleep_duration);
+    sleep_duration = sleep_duration(valid_indices);
+    date_time_data = date_time_data(valid_indices);
+
+    % Calculate the day of the year and corresponding angles
+    day_of_year = day(date_time_data, 'dayofyear');
+    theta_year = (day_of_year - 1) * (2 * pi / num_days_in_year);
+
+    % Perform circular correlation
+    [rho_annual, pval_annual] = circ_corrcl(theta_year(:), sleep_duration(:));
+
+    % Save results for each participant
+    results_H1b(idx).participant_id = participant_id;
+    results_H1b(idx).annual_rho = rho_annual;
+    results_H1b(idx).annual_pval = pval_annual;
+end
+
+% Save the results
+save(fullfile(results_folder, 'results_H1b.mat'), 'results_H1b');
+
+%% Combined Regression: Periodicity (Weekday & Annual) vs Age
+figure;
+hold on;
+
+% Weekday Periodicity Regression
+mdl_weekday = fitlm(weekday_rho_values, valid_age);
+x_weekday = linspace(min(weekday_rho_values), max(weekday_rho_values), 100);
+y_weekday = predict(mdl_weekday, x_weekday');
+plot(x_weekday, y_weekday, 'b-', 'LineWidth', 2, 'DisplayName', 'Weekday Periodicity');
+
+% Annual Periodicity Regression
+mdl_annual = fitlm(annual_rho_values, valid_age);
+x_annual = linspace(min(annual_rho_values), max(annual_rho_values), 100);
+y_annual = predict(mdl_annual, x_annual');
+plot(x_annual, y_annual, 'r-', 'LineWidth', 2, 'DisplayName', 'Annual Periodicity');
+
+% Customize the plot
+scatter(weekday_rho_values, valid_age, 50, 'b', 'filled', 'DisplayName', 'Weekday Data');
+scatter(annual_rho_values, valid_age, 50, 'r', 'filled', 'DisplayName', 'Annual Data');
+xlabel('Periodicity (\rho)');
+ylabel('Age');
+title('Periodicity (Weekday & Annual) vs Age');
+legend('show');
+grid on;
+hold off;
+
+% Save the combined plot
+saveas(gcf, fullfile(visuals_folder, 'regression_periodicity_combined_age.png'));
+
+
+
+%% Hypothesis 2: Sensitivity Analysis:
+% Preparation to save the results
+results_H2 = struct();
+for idx = 1:length(valid_participants)
+    participant_id = valid_participants(idx);
+    weekday_rho = results_H1a(idx).weekday_rho;
+    annual_rho = results_H1b(idx).annual_rho;
+    
+    sensitivity_score = abs(weekday_rho) + abs(annual_rho);
+    results_H2(idx).participant_id = participant_id;
+    results_H2(idx).sensitivity_score = sensitivity_score;
+    results_H2(idx).weekday_rho = weekday_rho;
+    results_H2(idx).annual_rho = annual_rho;
+end
+
+save(fullfile(results_folder, 'results_H2.mat'), 'results_H2'); % Save results for H2 in results subfolder
+
+% Regression Analysis and Scatter Plot for Sensitivity
+weekday_rho_values = [results_H2.weekday_rho];
+annual_rho_values = [results_H2.annual_rho];
+mdl_all = fitlm(weekday_rho_values, annual_rho_values);
+p_all = mdl_all.Coefficients.pValue(2);
+
+figure;
+hold on;
+scatter(weekday_rho_values, annual_rho_values, 50, 'k', 'filled', 'MarkerFaceAlpha', 0.3);
+x_fit = linspace(min(weekday_rho_values), max(weekday_rho_values), 100);
+y_fit_all = predict(mdl_all, x_fit');
+plot(x_fit, y_fit_all, 'k-', 'LineWidth', 2, 'DisplayName', sprintf('All (p = %.3f)', p_all));
+title('Sensitivity to Periodicity (Weekday vs Annual)');
+xlabel('Weekday Periodicity (\rho)');
+ylabel('Annual Periodicity (\rho)');
+hold off;
+saveas(gcf, fullfile(visuals_folder, 'scatter_sensitivity_weekyear.png')); % Save sensitivity analysis plot to visuals subfolder
+close(gcf);
+
+%% Hypothesis 2a: Age x sensitivity
+% Fit non-linear relationship between sensitivity and age
+sensitivity_scores = [results_H2.sensitivity_score]; 
+
+mdl = fitnlm(age, sensitivity_scores, @(b,x) b(1) + b(2)*x + b(3)*x.^2, [1, 1, 1]); % Quadratic fit
+figure;
+scatter(age, sensitivity_scores, 'filled');
+hold on;
+x_fit = linspace(min(age), max(age), 100);
+y_fit = mdl.Coefficients.Estimate(1) + mdl.Coefficients.Estimate(2) * x_fit + mdl.Coefficients.Estimate(3) * x_fit.^2;
+plot(x_fit, y_fit, 'r-', 'LineWidth', 2);
+title('Sensitivity vs Age (Non-linear Fit)');
+xlabel('Age');
+ylabel('Sensitivity Score');
+grid on;
+saveas(gcf, fullfile(visuals_folder, 'scatter_sensitivity_age.png'));
+
+
+%% Hypothesis 2b: gender
+
+% Visualize: Create a 2D Swarm Chart (Gender and Sensitivity)
+male_scores = sensitivity_scores(gender == 1);
+female_scores = sensitivity_scores(gender == 2);
+male_position = ones(size(male_scores));
+female_position = ones(size(female_scores)) * 2;
+
+figure('Visible', 'off'); 
+hold on;
+swarmchart(male_position, male_scores, 50, 'b', 'filled', 'MarkerFaceAlpha', 0.6);
+swarmchart(female_position, female_scores, 50, 'r', 'filled', 'MarkerFaceAlpha', 0.6);
+xlim([0.5, 2.5]);
+xticks([1, 2]);
+xticklabels({'Male', 'Female'});
+title('Sensitivity Scores by Gender');
+xlabel('Gender');
+ylabel('Sensitivity');
+legend('Male', 'Female');
+hold off;
+saveas(gcf, fullfile(visuals_folder, 'swarmchart_sensitivity_gender.png')); % Save the 2D swarm chart
+
+% Test significance using a two-sample t-test
+male_sensitivity = sensitivity_scores(gender == 1);
+female_sensitivity = sensitivity_scores(gender == 2);
+[h_gender, p_gender, ci_gender, stats_gender] = ttest2(male_sensitivity, female_sensitivity);
+
+% Display and save results
+fprintf('Gender Sensitivity T-Test:\n');
+fprintf('p-value = %.4f\n', p_gender);
+fprintf('t-statistic = %.4f\n', stats_gender.tstat);
+gender_test_results = struct('p_value', p_gender, 't_statistic', stats_gender.tstat, 'CI', ci_gender);
+save(fullfile(results_folder, 'ttest_sensitivity_gender.mat'), 'gender_test_results');
+
+%% Multiple visualizations in 1 figure:
+
+figure;
+
+% Plot: H1a (Weekday vs. Sleep Duration)
+subplot(2, 2, 1);
+scatter(mod(weekday(participant_data.ddayutc) - 2, 7) + 1, sleep_duration, 'filled'); % Monday = 1
+xticks(1:7); % Tick positions for days of the week
+xticklabels({'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'}); % Weekday labels
+title('H1a: Weekday Effect on Sleep Duration');
+xlabel('Day of the Week');
+ylabel('Sleep Duration');
+grid on;
+
+% Plot: H1b (Annual Effect on Sleep Duration)
+subplot(2, 2, 2);
+scatter(day(participant_data.ddayutc, 'dayofyear'), sleep_duration, 'filled');
+xticks([1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]); % Approx. month start
+xticklabels({'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'}); % Month labels
+title('H1b: Annual Effect on Sleep Duration');
+xlabel('Month');
+ylabel('Sleep Duration');
+grid on;
+
+% Plot: Sensitivity vs Age
+subplot(2, 2, 3);
+scatter(age, sensitivity_scores, 'filled');
+hold on;
+plot(x_fit, y_fit, 'r-', 'LineWidth', 2);
+title('H2a: Sensitivity vs Age');
+xlabel('Age');
+ylabel('Sensitivity');
+grid on;
+
+% Plot: Sensitivity by Gender
+subplot(2, 2, 4);
+boxplot(sensitivity_scores, gender, 'Labels', {'Male', 'Female'});
+title('H2b: Sensitivity by Gender');
+ylabel('Sensitivity Score');
+grid on;
+
+% Save combined visual
+saveas(gcf, fullfile(visuals_folder, 'combined_plots.png'));
+
+
